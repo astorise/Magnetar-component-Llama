@@ -12,24 +12,32 @@ request Capabilities, not Providers or Devices).
 
 ## Status
 
-**Empty template.** This crate is currently a bare `cargo new --lib`
-scaffold: no Llama graph logic, no WIT bindings, no Component Model exports
-exist here yet. Unlike [`components/qwen`](https://github.com/astorise/Magnetar-component-Qwen),
-Magnetar's Runtime has no interim, Rust-native Llama implementation either
--- Llama support does not exist anywhere in the Magnetar workspace today.
-This submodule is a placeholder for future work, not yet scheduled against
-any OpenSpec change.
+**Real, configurable Model Component.** Implements the same
+`magnetar:model-component-graph@1.2.0` `model-component-graph-producer`
+world [`components/qwen`](https://github.com/astorise/Magnetar-component-Qwen)
+implements, with structurally identical graph-building logic: Llama (1/2/3)
+and Qwen2/2.5 are both real, well-documented instances of the same
+pre-norm, RoPE, grouped-query-attention, SwiGLU-gated decoder block --
+Qwen2's own architecture is Llama's with an added QKV bias term, not a
+different block shape (see `src/lib.rs`'s own module doc comment for the
+full reasoning). Every axis that actually differs between the two
+families is already expressed generically by `model-config`'s
+`architecture-config` record; there is no separate Llama-specific graph
+shape to add beyond what that contract already models. Magnetar's Runtime
+still has no interim, Rust-native Llama implementation (unlike Qwen's own
+`qwen_model_component.rs` fixture path) -- this WASM Component is Llama's
+only graph-production authority.
 
 ## Governing contract
 
-None dedicated yet. Once real work starts here, it will implement the same
-`model-component-graph-contract` WIT interface `components/qwen` targets
-(see that Component's README), since both are decoder-only architectures
-sharing the same Runtime-side graph-production contract -- Llama-specific
-requirements (attention variant, rotary embedding parameters, tokenizer
-family, etc.) would be scoped in a dedicated `llama-model-component`
-capability spec in the main [Magnetar](https://github.com/astorise/Magnetar)
-repository's `openspec/specs/` when that work begins.
+Implements `model-component-graph-contract` (`magnetar:model-component-
+graph@1.2.0`), the same WIT interface `components/qwen` targets -- see
+that Component's README and the main
+[Magnetar](https://github.com/astorise/Magnetar) repository's
+`openspec/specs/model-component-graph-contract/spec.md` for the full
+contract. Llama-specific requirements (real checkpoint compatibility,
+tokenizer family, adapter/quantization scope) are tracked in the main
+repository's `llama-model-component` capability spec.
 
 ## Relationship to magnetar-runtime
 

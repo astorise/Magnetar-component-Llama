@@ -168,9 +168,12 @@ interface model-config {
   /// never triggers one").
   model-config: func() -> architecture-config;
 
-  /// Llama 3 RoPE frequency scaling (`rope_scaling.rope_type = "llama3"` in
-  /// a Hugging Face `config.json`). Added in `1.4.0`.
-  record llama3-rope-scaling {
+  /// Wavelength-banded RoPE frequency scaling: pairs whose wavelength is
+  /// below `original-max-position-embeddings / high-freq-factor` keep their
+  /// frequency, those above `original-max-position-embeddings /
+  /// low-freq-factor` divide it by `factor`, and the band in between is
+  /// interpolated (Hugging Face `rope_type = "llama3"`). Added in `1.4.0`.
+  record banded-rope-scaling {
     factor: f64,
     low-freq-factor: f64,
     high-freq-factor: f64,
@@ -180,7 +183,7 @@ interface model-config {
   /// A per-frequency RoPE scaling scheme the checkpoint declares. Added in
   /// `1.4.0`; new schemes are new cases.
   variant rope-frequency-scaling {
-    llama3(llama3-rope-scaling),
+    banded(banded-rope-scaling),
   }
 
   /// Added in `1.4.0`: the per-frequency RoPE scaling the active Model

@@ -43,7 +43,7 @@ use magnetar::model_component_graph::graph_builder::{
     alias_weight_edge, begin_graph, declare_input, finish_graph, kv_resource, weight_edge,
 };
 use magnetar::model_component_graph::model_config::{
-    self, ArchitectureConfig, Llama3RopeScaling, RopeFrequencyScaling,
+    self, ArchitectureConfig, BandedRopeScaling, RopeFrequencyScaling,
 };
 
 const ROPE_POSITION_MODE: &str = "sequential";
@@ -91,7 +91,7 @@ fn weight_tensor_name(layer: u64, suffix: &str) -> String {
 /// actually ingested.
 fn build_layer(
     config: &ArchitectureConfig,
-    rope_scaling: Option<&Llama3RopeScaling>,
+    rope_scaling: Option<&BandedRopeScaling>,
     layer: u64,
     residual_in: &str,
     sequence_length: u64,
@@ -232,7 +232,7 @@ fn build_layer(
             attr("head_count", AttributeValue::Integer(head_count as i64)),
         ]
         .into_iter()
-        .chain(rope_scaling.into_iter().flat_map(llama3_rope_attrs))
+        .chain(rope_scaling.into_iter().flat_map(banded_rope_attrs))
         .collect::<Vec<_>>()
     };
     let q_rope = add_node(
@@ -405,7 +405,7 @@ fn build_graph_segment(
     // Llama 3 checkpoints rescale RoPE frequencies per pair; the Runtime
     // only forwards what this Component declares on its `rope` nodes.
     let rope_scaling = model_config::rope_scaling().map(|scaling| match scaling {
-        RopeFrequencyScaling::Llama3(llama3) => llama3,
+        RopeFrequencyScaling::Banded(banded) => banded,
     });
     begin_graph(phase, sequence_length, position_offset);
 
@@ -497,11 +497,11 @@ fn build_graph(
 
 /// Llama 3 frequency scaling as the portable `rope` Operator's
 /// `frequency_scaling` attributes.
-fn llama3_rope_attrs(scaling: &Llama3RopeScaling) -> Vec<Attribute> {
+fn banded_rope_attrs(scaling: &BandedRopeScaling) -> Vec<Attribute> {
     vec![
         attr(
             "frequency_scaling",
-            AttributeValue::Text("llama3".to_string()),
+            AttributeValue::Text("banded".to_string()),
         ),
         attr(
             "frequency_scaling_factor",

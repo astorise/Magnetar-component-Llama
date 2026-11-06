@@ -1,5 +1,5 @@
 //! Production, configurable Llama Model Component
-//! (`magnetar:model-component-graph@1.2.0`).
+//! (`magnetar:model-component-graph@1.4.0`).
 //!
 //! Builds prefill and decode Execution Graphs for whatever Llama-compatible
 //! architecture the active Model Instance was loaded with, via the
@@ -42,7 +42,9 @@ use magnetar::model_component_graph::graph_builder::{
     Attribute, AttributeValue, GraphPhase, KvCacheRole, KvInvolvement, TensorShape, add_node,
     alias_weight_edge, begin_graph, declare_input, finish_graph, kv_resource, weight_edge,
 };
-use magnetar::model_component_graph::model_config::{self, ArchitectureConfig};
+use magnetar::model_component_graph::model_config::{
+    self, ArchitectureConfig, Llama3RopeScaling, RopeFrequencyScaling,
+};
 
 const ROPE_POSITION_MODE: &str = "sequential";
 const ROPE_ROTATION_PAIRING: &str = "half_split";
@@ -89,6 +91,7 @@ fn weight_tensor_name(layer: u64, suffix: &str) -> String {
 /// actually ingested.
 fn build_layer(
     config: &ArchitectureConfig,
+    rope_scaling: Option<&Llama3RopeScaling>,
     layer: u64,
     residual_in: &str,
     sequence_length: u64,
@@ -228,6 +231,9 @@ fn build_layer(
             attr("position_offset", AttributeValue::Integer(offset)),
             attr("head_count", AttributeValue::Integer(head_count as i64)),
         ]
+        .into_iter()
+        .chain(rope_scaling.into_iter().flat_map(llama3_rope_attrs))
+        .collect::<Vec<_>>()
     };
     let q_rope = add_node(
         &format!("{prefix}.rope_q"),
@@ -376,29 +382,65 @@ fn build_layer(
     )
 }
 
-fn build_graph(
+/// Builds one *segment* of the full decoder stack's graph -- real decoder
+/// layers `[start_layer, end_layer)` only (`model-component-graph.wit`
+/// 1.3.0). `build_graph` (below) is exactly
+/// `build_graph_segment(..., 0, config.num_hidden_layers)`.
+///
+/// `start_layer == 0` begins from a declared `token_ids` input with the
+/// token embedding lookup; `start_layer > 0` begins from a declared
+/// `hidden_states_in` input of shape `[sequence_length, hidden_size]`, a
+/// prior segment's output. `end_layer == config.num_hidden_layers` ends with
+/// the final-norm/lm-head projection; an earlier `end_layer` ends with the
+/// raw post-layer hidden state for a subsequent segment to consume.
+fn build_graph_segment(
     phase: GraphPhase,
     sequence_length: u64,
     position_offset: u64,
     kv_append: bool,
+    start_layer: u32,
+    end_layer: u32,
 ) -> String {
     let config = model_config::model_config();
+    // Llama 3 checkpoints rescale RoPE frequencies per pair; the Runtime
+    // only forwards what this Component declares on its `rope` nodes.
+    let rope_scaling = model_config::rope_scaling().map(|scaling| match scaling {
+        RopeFrequencyScaling::Llama3(llama3) => llama3,
+    });
     begin_graph(phase, sequence_length, position_offset);
 
-    let token_ids = declare_input("token_ids", &shape(vec![sequence_length]));
-    let token_embedding = weight_edge("token_embedding");
-    let mut hidden = add_node(
-        "embedding",
-        "embedding",
-        "Tensor",
-        &[],
-        &[token_ids, token_embedding],
-        &shape(vec![sequence_length, config.hidden_size]),
-        None,
-    );
+    let mut hidden = if start_layer == 0 {
+        let token_ids = declare_input("token_ids", &shape(vec![sequence_length]));
+        let token_embedding = weight_edge("token_embedding");
+        add_node(
+            "embedding",
+            "embedding",
+            "Tensor",
+            &[],
+            &[token_ids, token_embedding],
+            &shape(vec![sequence_length, config.hidden_size]),
+            None,
+        )
+    } else {
+        declare_input(
+            "hidden_states_in",
+            &shape(vec![sequence_length, config.hidden_size]),
+        )
+    };
 
-    for layer in 0..config.num_hidden_layers as u64 {
-        hidden = build_layer(&config, layer, &hidden, sequence_length, kv_append);
+    for layer in start_layer as u64..end_layer as u64 {
+        hidden = build_layer(
+            &config,
+            rope_scaling.as_ref(),
+            layer,
+            &hidden,
+            sequence_length,
+            kv_append,
+        );
+    }
+
+    if end_layer != config.num_hidden_layers {
+        return finish_graph(&hidden);
     }
 
     let final_norm_weight = weight_edge("final_norm");
@@ -417,6 +459,10 @@ fn build_graph(
 
     let lm_head_weight = weight_edge("lm_head");
     if config.tie_word_embeddings {
+        // `alias-weight-edge` requires its target edge to exist in this
+        // graph; a segment that does not start at layer 0 never looked up
+        // the embedding, so register it first (idempotent otherwise).
+        weight_edge("token_embedding");
         alias_weight_edge(&lm_head_weight, "token_embedding");
     }
     let logits = add_node(
@@ -432,6 +478,50 @@ fn build_graph(
     finish_graph(&logits)
 }
 
+fn build_graph(
+    phase: GraphPhase,
+    sequence_length: u64,
+    position_offset: u64,
+    kv_append: bool,
+) -> String {
+    let num_hidden_layers = model_config::model_config().num_hidden_layers;
+    build_graph_segment(
+        phase,
+        sequence_length,
+        position_offset,
+        kv_append,
+        0,
+        num_hidden_layers,
+    )
+}
+
+/// Llama 3 frequency scaling as the portable `rope` Operator's
+/// `frequency_scaling` attributes.
+fn llama3_rope_attrs(scaling: &Llama3RopeScaling) -> Vec<Attribute> {
+    vec![
+        attr(
+            "frequency_scaling",
+            AttributeValue::Text("llama3".to_string()),
+        ),
+        attr(
+            "frequency_scaling_factor",
+            AttributeValue::FloatValue(scaling.factor),
+        ),
+        attr(
+            "low_frequency_factor",
+            AttributeValue::FloatValue(scaling.low_freq_factor),
+        ),
+        attr(
+            "high_frequency_factor",
+            AttributeValue::FloatValue(scaling.high_freq_factor),
+        ),
+        attr(
+            "original_context_length",
+            AttributeValue::Integer(scaling.original_max_position_embeddings as i64),
+        ),
+    ]
+}
+
 struct Component;
 
 impl Guest for Component {
@@ -441,6 +531,36 @@ impl Guest for Component {
 
     fn build_decode_graph(cached_token_count: u64) -> String {
         build_graph(GraphPhase::Decode, 1, cached_token_count, true)
+    }
+
+    fn build_prefill_graph_segment(
+        sequence_length: u64,
+        start_layer: u32,
+        end_layer: u32,
+    ) -> String {
+        build_graph_segment(
+            GraphPhase::Prefill,
+            sequence_length,
+            0,
+            false,
+            start_layer,
+            end_layer,
+        )
+    }
+
+    fn build_decode_graph_segment(
+        cached_token_count: u64,
+        start_layer: u32,
+        end_layer: u32,
+    ) -> String {
+        build_graph_segment(
+            GraphPhase::Decode,
+            1,
+            cached_token_count,
+            true,
+            start_layer,
+            end_layer,
+        )
     }
 }
 

@@ -53,6 +53,12 @@ fn shape(dimensions: Vec<u64>) -> TensorShape {
     TensorShape { dimensions }
 }
 
+/// A node's tensor-parallel role (`column`, `row` or `local`): how a
+/// Runtime may split it across Devices.
+fn tensor_parallel(kind: &str) -> Attribute {
+    attr("tensor_parallel", AttributeValue::Text(kind.to_string()))
+}
+
 fn attr(name: &str, value: AttributeValue) -> Attribute {
     Attribute {
         name: name.to_string(),
@@ -327,7 +333,7 @@ fn build_layer(
         &format!("{prefix}.gate_proj"),
         "matmul",
         "LinearAlgebra",
-        &[],
+        &[tensor_parallel("column")],
         &[mlp_normed.clone(), gate_weight],
         &shape(vec![sequence_length, intermediate_size]),
         None,
@@ -337,7 +343,7 @@ fn build_layer(
         &format!("{prefix}.up_proj"),
         "matmul",
         "LinearAlgebra",
-        &[],
+        &[tensor_parallel("column")],
         &[mlp_normed, up_weight],
         &shape(vec![sequence_length, intermediate_size]),
         None,
@@ -346,7 +352,7 @@ fn build_layer(
         &format!("{prefix}.silu"),
         "silu",
         "Activation",
-        &[],
+        &[tensor_parallel("local")],
         &[gate],
         &shape(vec![sequence_length, intermediate_size]),
         None,
@@ -355,7 +361,7 @@ fn build_layer(
         &format!("{prefix}.mul"),
         "mul",
         "Tensor",
-        &[],
+        &[tensor_parallel("local")],
         &[activated, up],
         &shape(vec![sequence_length, intermediate_size]),
         None,
@@ -365,7 +371,7 @@ fn build_layer(
         &format!("{prefix}.down_proj"),
         "matmul",
         "LinearAlgebra",
-        &[],
+        &[tensor_parallel("row")],
         &[mlp_hidden, down_weight],
         &shape(vec![sequence_length, hidden_size]),
         None,

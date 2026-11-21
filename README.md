@@ -12,8 +12,11 @@ request Capabilities, not Providers or Devices).
 
 ## Status
 
+The Component requires the checkpoint activation to be known and equal to
+`silu`. It rejects unknown activations, other activation functions and YaRN.
+
 **Real, configurable Model Component.** Implements the same
-`magnetar:model-component-graph@1.4.0` `model-component-graph-producer`
+`magnetar:model-component-graph@1.8.0` `model-component-graph-producer`
 world [`components/qwen`](https://github.com/astorise/Magnetar-component-Qwen)
 implements, with structurally identical graph-building logic: Llama (1/2/3)
 and Qwen2/2.5 are both real, well-documented instances of the same

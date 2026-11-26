@@ -1,0 +1,27 @@
+name: Llama graph integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  graph-and-component:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install pinned Rust toolchain and WebAssembly target
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup target add wasm32-wasip2 --toolchain 1.100.0
+      - name: Exercise the graph, the golden graphs and the WIT adapter
+        run: cargo +1.100.0 test --locked --features bindings
+      - name: Build Component Model artifact
+        run: cargo +1.100.0 build --locked --release --target wasm32-wasip2
+      - name: Install wasm-tools
+        uses: taiki-e/install-action@d270f69d9016a914699316c97c419c84d5e96475 # wasm-tools
+      - name: Validate Component Model artifact
+        run: wasm-tools validate target/wasm32-wasip2/release/magnetar_component_Llama.wasm --features component-model

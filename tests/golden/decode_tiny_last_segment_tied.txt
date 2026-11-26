@@ -1,0 +1,36 @@
+begin Decode sequence=1 offset=11
+input hidden_states_in [1, 8]
+weight layers.2.input_norm
+node layer2.input_norm op=rmsnorm family=Normalization inputs=["input:hidden_states_in", "weight:layers.2.input_norm"] shape=[1, 8] epsilon=float:1e-6
+weight layers.2.self_attn.q_proj
+node layer2.q_proj op=matmul family=LinearAlgebra inputs=["out:layer2.input_norm", "weight:layers.2.self_attn.q_proj"] shape=[1, 16]
+weight layers.2.self_attn.k_proj
+node layer2.k_proj op=matmul family=LinearAlgebra inputs=["out:layer2.input_norm", "weight:layers.2.self_attn.k_proj"] shape=[1, 8]
+weight layers.2.self_attn.v_proj
+kv 2 V
+node layer2.v_proj op=matmul family=LinearAlgebra inputs=["out:layer2.input_norm", "weight:layers.2.self_attn.v_proj"] shape=[1, 8] kv=(kv:2:V, V, append=true)
+node layer2.rope_q op=rope family=PositionEncoding inputs=["out:layer2.q_proj"] shape=[1, 16] base=float:10000.0 dimension=int:4 position_mode=text:sequential rotation_pairing=text:half_split position_offset=int:0 head_count=int:4
+kv 2 K
+node layer2.rope_k op=rope family=PositionEncoding inputs=["out:layer2.k_proj"] shape=[1, 8] base=float:10000.0 dimension=int:4 position_mode=text:sequential rotation_pairing=text:half_split position_offset=int:0 head_count=int:2 kv=(kv:2:K, K, append=true)
+node layer2.attention op=attention family=Attention inputs=["out:layer2.rope_q", "out:layer2.rope_k", "out:layer2.v_proj"] shape=[1, 16] causal=bool:true head_count=int:4 kv_head_count=int:2 head_dimension=int:4 attention_mask_kind=text:causal
+weight layers.2.self_attn.o_proj
+node layer2.o_proj op=matmul family=LinearAlgebra inputs=["out:layer2.attention", "weight:layers.2.self_attn.o_proj"] shape=[1, 8]
+node layer2.residual1 op=residual-add family=Tensor inputs=["input:hidden_states_in", "out:layer2.o_proj"] shape=[1, 8]
+weight layers.2.post_attn_norm
+node layer2.post_attn_norm op=rmsnorm family=Normalization inputs=["out:layer2.residual1", "weight:layers.2.post_attn_norm"] shape=[1, 8] epsilon=float:1e-6
+weight layers.2.mlp.gate_proj
+node layer2.gate_proj op=matmul family=LinearAlgebra inputs=["out:layer2.post_attn_norm", "weight:layers.2.mlp.gate_proj"] shape=[1, 12] tensor_parallel=text:column
+weight layers.2.mlp.up_proj
+node layer2.up_proj op=matmul family=LinearAlgebra inputs=["out:layer2.post_attn_norm", "weight:layers.2.mlp.up_proj"] shape=[1, 12] tensor_parallel=text:column
+node layer2.silu op=silu family=Activation inputs=["out:layer2.gate_proj"] shape=[1, 12] tensor_parallel=text:local
+node layer2.mul op=mul family=Tensor inputs=["out:layer2.silu", "out:layer2.up_proj"] shape=[1, 12] tensor_parallel=text:local
+weight layers.2.mlp.down_proj
+node layer2.down_proj op=matmul family=LinearAlgebra inputs=["out:layer2.mul", "weight:layers.2.mlp.down_proj"] shape=[1, 8] tensor_parallel=text:row
+node layer2.residual2 op=residual-add family=Tensor inputs=["out:layer2.residual1", "out:layer2.down_proj"] shape=[1, 8]
+weight final_norm
+node final_norm op=rmsnorm family=Normalization inputs=["out:layer2.residual2", "weight:final_norm"] shape=[1, 8] epsilon=float:1e-6
+weight lm_head
+weight token_embedding
+alias weight:lm_head -> token_embedding
+node lm_head op=matmul family=LinearAlgebra inputs=["out:final_norm", "weight:lm_head"] shape=[1, 17]
+finish out:lm_head

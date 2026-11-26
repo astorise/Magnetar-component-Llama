@@ -1,0 +1,29 @@
+name: Qualification
+
+# Does the Magnetar Runtime accept the artifact this Component builds? The
+# checks in ci.yml and the graph tests see this repository's graph code only.
+# This one builds the Component for the Component Model, in a Magnetar checkout
+# where it replaces the Component Magnetar pins, and runs the Runtime's tests
+# that consume it. The tests stay in Magnetar; the workflow is defined there
+# once (component-qualification.yml), and `tools/qualify_component.sh list`
+# says what it runs for each Component.
+#
+# The Magnetar revision is the branch named like this repository's branch when
+# Magnetar has one, otherwise Magnetar's main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualification:
+    uses: astorise/Magnetar/.github/workflows/component-qualification.yml@main
+    with:
+      component: llama

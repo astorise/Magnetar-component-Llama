@@ -1,0 +1,42 @@
+begin Decode sequence=1 offset=11
+input token_ids [1]
+weight token_embedding
+node embedding op=embedding family=Tensor inputs=["input:token_ids", "weight:token_embedding"] shape=[1, 8]
+weight layers.0.input_norm
+node layer0.input_norm op=rmsnorm family=Normalization inputs=["out:embedding", "weight:layers.0.input_norm"] shape=[1, 8] epsilon=float:1e-6
+weight layers.0.self_attn.q_proj
+node layer0.q_proj op=matmul family=LinearAlgebra inputs=["out:layer0.input_norm", "weight:layers.0.self_attn.q_proj"] shape=[1, 16]
+weight layers.0.self_attn.q_bias
+node layer0.q_bias op=add family=Tensor inputs=["out:layer0.q_proj", "weight:layers.0.self_attn.q_bias"] shape=[1, 16]
+weight layers.0.self_attn.k_proj
+node layer0.k_proj op=matmul family=LinearAlgebra inputs=["out:layer0.input_norm", "weight:layers.0.self_attn.k_proj"] shape=[1, 8]
+weight layers.0.self_attn.k_bias
+node layer0.k_bias op=add family=Tensor inputs=["out:layer0.k_proj", "weight:layers.0.self_attn.k_bias"] shape=[1, 8]
+weight layers.0.self_attn.v_proj
+kv 0 V
+node layer0.v_proj op=matmul family=LinearAlgebra inputs=["out:layer0.input_norm", "weight:layers.0.self_attn.v_proj"] shape=[1, 8]
+weight layers.0.self_attn.v_bias
+node layer0.v_bias op=add family=Tensor inputs=["out:layer0.v_proj", "weight:layers.0.self_attn.v_bias"] shape=[1, 8] kv=(kv:0:V, V, append=true)
+node layer0.rope_q op=rope family=PositionEncoding inputs=["out:layer0.q_bias"] shape=[1, 16] base=float:10000.0 dimension=int:4 position_mode=text:sequential rotation_pairing=text:half_split position_offset=int:0 head_count=int:4
+kv 0 K
+node layer0.rope_k op=rope family=PositionEncoding inputs=["out:layer0.k_bias"] shape=[1, 8] base=float:10000.0 dimension=int:4 position_mode=text:sequential rotation_pairing=text:half_split position_offset=int:0 head_count=int:2 kv=(kv:0:K, K, append=true)
+node layer0.attention op=attention family=Attention inputs=["out:layer0.rope_q", "out:layer0.rope_k", "out:layer0.v_bias"] shape=[1, 16] causal=bool:true head_count=int:4 kv_head_count=int:2 head_dimension=int:4 attention_mask_kind=text:causal
+weight layers.0.self_attn.o_proj
+node layer0.o_proj op=matmul family=LinearAlgebra inputs=["out:layer0.attention", "weight:layers.0.self_attn.o_proj"] shape=[1, 8]
+node layer0.residual1 op=residual-add family=Tensor inputs=["out:embedding", "out:layer0.o_proj"] shape=[1, 8]
+weight layers.0.post_attn_norm
+node layer0.post_attn_norm op=rmsnorm family=Normalization inputs=["out:layer0.residual1", "weight:layers.0.post_attn_norm"] shape=[1, 8] epsilon=float:1e-6
+weight layers.0.mlp.gate_proj
+node layer0.gate_proj op=matmul family=LinearAlgebra inputs=["out:layer0.post_attn_norm", "weight:layers.0.mlp.gate_proj"] shape=[1, 12] tensor_parallel=text:column
+weight layers.0.mlp.up_proj
+node layer0.up_proj op=matmul family=LinearAlgebra inputs=["out:layer0.post_attn_norm", "weight:layers.0.mlp.up_proj"] shape=[1, 12] tensor_parallel=text:column
+node layer0.silu op=silu family=Activation inputs=["out:layer0.gate_proj"] shape=[1, 12] tensor_parallel=text:local
+node layer0.mul op=mul family=Tensor inputs=["out:layer0.silu", "out:layer0.up_proj"] shape=[1, 12] tensor_parallel=text:local
+weight layers.0.mlp.down_proj
+node layer0.down_proj op=matmul family=LinearAlgebra inputs=["out:layer0.mul", "weight:layers.0.mlp.down_proj"] shape=[1, 8] tensor_parallel=text:row
+node layer0.residual2 op=residual-add family=Tensor inputs=["out:layer0.residual1", "out:layer0.down_proj"] shape=[1, 8]
+weight final_norm
+node final_norm op=rmsnorm family=Normalization inputs=["out:layer0.residual2", "weight:final_norm"] shape=[1, 8] epsilon=float:1e-6
+weight lm_head
+node lm_head op=matmul family=LinearAlgebra inputs=["out:final_norm", "weight:lm_head"] shape=[1, 17]
+finish out:lm_head

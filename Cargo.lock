@@ -92,8 +92,23 @@ dependencies = [
 name = "magnetar-component-Llama"
 version = "1.0.0"
 dependencies = [
+ "magnetar-component-api",
+ "magnetar-component-sdk",
+ "serde_json",
+]
+
+[[package]]
+name = "magnetar-component-api"
+version = "0.1.0"
+source = "git+https://github.com/astorise/magnetar-component-api?rev=2383a7479ff496b147e27e294f3190d5209b39d4#2383a7479ff496b147e27e294f3190d5209b39d4"
+dependencies = [
  "wit-bindgen",
 ]
+
+[[package]]
+name = "magnetar-component-sdk"
+version = "0.1.0"
+source = "git+https://github.com/astorise/magnetar-component-sdk?rev=4e2e556176f465aa8d271259104de9e2f5aefdfa#4e2e556176f465aa8d271259104de9e2f5aefdfa"
 
 [[package]]
 name = "memchr"

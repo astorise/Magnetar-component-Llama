@@ -92,6 +92,15 @@ first step of each run prints which one was used. A change that spans both
 repositories is validated by pushing the Magnetar branch first, then a branch
 of the same name here.
 
+`.github/workflows/qualification.yml` asks a different question: does the
+Magnetar Runtime accept the artifact this Component builds? It calls Magnetar's
+reusable
+[`component-qualification.yml`](https://github.com/astorise/Magnetar/blob/main/.github/workflows/component-qualification.yml),
+which builds this Component for the Component Model inside a Magnetar checkout,
+in place of the one Magnetar pins, validates it and runs the Runtime's tests that
+consume it (`tools/qualify_component.sh list`, in Magnetar, says which). The
+tests stay in Magnetar; this repository only names the Component (`llama`).
+
 Clippy is not run here: the package name fails the `non_snake_case` lint on
 the crate name. `cargo-deny` is not run either: the two shared crates are git
 dependencies, which the policy's `sources` check refuses until they are

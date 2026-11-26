@@ -407,11 +407,17 @@ fn build_graph_segment(
     start_layer: u32,
     end_layer: u32,
 ) -> String {
+    match model_config::hidden_activation().as_deref() {
+        Some("silu") => {}
+        Some(other) => panic!("the Llama Component does not support activation {other:?}"),
+        None => panic!("the Llama Component requires a known checkpoint activation"),
+    }
     let config = model_config::model_config();
     // Llama 3 checkpoints rescale RoPE frequencies per pair; the Runtime
     // only forwards what this Component declares on its `rope` nodes.
     let rope_scaling = model_config::rope_scaling().map(|scaling| match scaling {
         RopeFrequencyScaling::Banded(banded) => banded,
+        RopeFrequencyScaling::Yarn(_) => panic!("the Llama Component does not apply YaRN"),
     });
     begin_graph(phase, sequence_length, position_offset);
 

@@ -39,7 +39,7 @@ only graph-production authority.
 ## Governing contract
 
 Implements `model-component-graph-contract` (`magnetar:model-component-
-graph@1.4.0`), the same WIT interface `components/qwen` targets -- see
+graph@1.8.0`), the same WIT interface `components/qwen` targets -- see
 that Component's README and the main
 [Magnetar](https://github.com/astorise/Magnetar) repository's
 `openspec/specs/model-component-graph-contract/spec.md` for the full
@@ -51,9 +51,27 @@ repository's `llama-model-component` capability spec.
 
 This Component would be loaded and validated by the Runtime's Component
 Engine (Wasmtime-backed on native targets, browser-hosted on `wasm32`) and
-never run with direct hardware, filesystem, or network access. It is
-pinned into the main [Magnetar](https://github.com/astorise/Magnetar)
-repository as a git submodule at `components/llama`.
+never run with direct hardware, filesystem, or network access. The main
+[Magnetar](https://github.com/astorise/Magnetar) repository pins it by
+commit (`repositories.lock`) and places it at `components/llama`.
+
+## Built on the shared crates
+
+The graph IR (`Phase`, `KvRole`, `Value`, `Attr`, `Kv`, `Node`), the `GraphSink`
+the builder writes to and the adapter to the contract's `graph-builder` come from
+[`magnetar-component-sdk`](https://github.com/astorise/magnetar-component-sdk),
+and the contract itself (the WIT file and its generated bindings, version 1.8.0)
+from [`magnetar-component-api`](https://github.com/astorise/magnetar-component-api)
+with its `v1_8` feature. Both are git dependencies pinned by commit while they
+are in development, and published once stable. `src/plan.rs` keeps only what is
+specific to Llama: the configuration and the graph; `src/component.rs` reads the
+Runtime's `model-config` and calls the builder.
+
+`tests/golden/` holds the graphs the builder emits, recorded before it moved onto
+either crate (from the unmodified graph code, run on the host against a recording
+stand-in for the Runtime's imports); `tests/golden_graphs.rs` compares every call
+against them. Regenerate them deliberately with
+`UPDATE_GOLDEN=1 cargo test --test golden_graphs`.
 
 ## Continuous integration
 
@@ -62,7 +80,10 @@ repository as a git submodule at `components/llama`.
 [Magnetar](https://github.com/astorise/Magnetar) repository defines once for
 all module repositories
 ([`submodule-ci.yml`](https://github.com/astorise/Magnetar/blob/main/.github/workflows/submodule-ci.yml)):
-formatting, tests with the committed `Cargo.lock`, and `cargo-deny`.
+formatting and tests with the committed `Cargo.lock`.
+`.github/workflows/graph-integration.yml` also runs the tests with the `bindings`
+feature (the adapter to the contract, built for the host), builds the Component
+for `wasm32-wasip2` and validates it as a Component Model artifact.
 
 The crate is built inside a Magnetar checkout, at `components/llama`, with the Rust
 toolchain Magnetar pins. The Magnetar revision is the branch named like this
@@ -72,7 +93,9 @@ repositories is validated by pushing the Magnetar branch first, then a branch
 of the same name here.
 
 Clippy is not run here: the package name fails the `non_snake_case` lint on
-the crate name.
+the crate name. `cargo-deny` is not run either: the two shared crates are git
+dependencies, which the policy's `sources` check refuses until they are
+published.
 
 A test failure that names `Cargo.lock` means the Runtime's dependency set
 changed in Magnetar; refresh the lockfile with `cargo update -w` from this
@@ -84,5 +107,4 @@ repository at its submodule path:
 ```bash
 cargo fmt --manifest-path components/llama/Cargo.toml -- --check
 cargo test --locked --manifest-path components/llama/Cargo.toml
-cargo deny --manifest-path components/llama/Cargo.toml check
 ```
